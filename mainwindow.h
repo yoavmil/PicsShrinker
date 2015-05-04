@@ -29,15 +29,21 @@ private slots:
     void on_selectFolderBtn_clicked();
     void on_startStopBtn_clicked();
     void on_overwriteCheckBox_clicked();
-    void on_resolutionSlider_valueChanged(int value);
+    void on_qualitySlider_valueChanged(int value);
     void processFinished();
+    void populatingFilesFinished();
+    void filesAddedSlot(int howMuch);
 
+signals:
+    void filesAdded(int howMuch);
 
 private:
     Ui::MainWindow *ui;
-    QVector<ImageData> files;
+    QList<ImageData> files;
 
+    void populateFilesInvoke();
     void populateFilesAsync(QString rootDir);
+    void addFiles(const QList<ImageData>& newFiles);
     void updateProgressBarRange();
 
     static MainWindow* inst;

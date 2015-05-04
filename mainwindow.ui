@@ -134,7 +134,7 @@
           <item>
            <widget class="QLabel" name="label">
             <property name="text">
-             <string>resolution:</string>
+             <string>quality:</string>
             </property>
            </widget>
           </item>
@@ -152,7 +152,7 @@
            </spacer>
           </item>
           <item>
-           <widget class="QLabel" name="resolutionLabel">
+           <widget class="QLabel" name="qualityLabel">
             <property name="text">
              <string>--</string>
             </property>
@@ -161,7 +161,7 @@
          </layout>
         </item>
         <item>
-         <widget class="QSlider" name="resolutionSlider">
+         <widget class="QSlider" name="qualitySlider">
           <property name="minimum">
            <number>10</number>
           </property>

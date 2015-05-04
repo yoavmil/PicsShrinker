@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "common.h"
 
 #include <QFileDialog>
 #include <QDirIterator>
@@ -7,6 +8,7 @@
 #include <QDebug>
 #include <QFutureWatcher>
 #include <qtconcurrentmap.h>
+#include <QtConcurrent>
 #include <QImageWriter>
 
 MainWindow* MainWindow::inst;
@@ -17,7 +19,8 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     inst = this;
     ui->setupUi(this);
-    on_resolutionSlider_valueChanged(ui->resolutionSlider->value());
+    on_qualitySlider_valueChanged(ui->qualitySlider->value());
+    connect(this, SIGNAL(filesAdded(int)), this, SLOT(filesAddedSlot(int)), Qt::QueuedConnection);
 }
 
 MainWindow::~MainWindow()
@@ -29,27 +32,11 @@ void MainWindow::on_selectFolderBtn_clicked()
 {
     QString dirName = QFileDialog::getExistingDirectory(this, "Select Root Folder");
     if (dirName.isEmpty())
-        return;
-    files.clear();
-    populateFilesAsync(dirName);
-
-    long totalSize = 0;
-    for (int i = 0; i < files.size(); i++) {
-        totalSize += files[i].origFileSize;
-    }
-    qDebug() << "found" << files.size() << "files with total size" << totalSize;
-    updateProgressBarRange();
+        return;    
     ui->rootDirLabel->setText(dirName);
-    on_overwriteCheckBox_clicked();
-    if (ui->outputDirLineEdit->text().isEmpty()) {
-        ui->outputDirLineEdit->setFocus();
-    }
-    ui->startStopBtn->setEnabled(files.size() > 0);
-    ui->progressBar->setEnabled(files.size() > 0);
-    if (files.size() == 0) {
-        this->statusBar()->setToolTip("input directory has no image files");
-    }
+    populateFilesInvoke();
 }
+
 void shrink(ImageData& id);
 void MainWindow::on_startStopBtn_clicked()
 {
@@ -70,21 +57,53 @@ void MainWindow::on_overwriteCheckBox_clicked()
     }
 }
 
+void MainWindow::populateFilesInvoke()
+{
+    files.clear();
+    QString rootDir = ui->rootDirLabel->text();
+    QFutureWatcher<void>* futureWatcher = new QFutureWatcher<void>();
+    QFuture<void> getImagesFuture = QtConcurrent::run(this, populateFilesAsync, rootDir);
+
+    connect(futureWatcher, SIGNAL(finished()), futureWatcher, SLOT(deleteLater()));
+    connect(futureWatcher, SIGNAL(finished()), this, SLOT(populatingFilesFinished()));
+    futureWatcher->setFuture(getImagesFuture);
+}
+
 void MainWindow::populateFilesAsync(QString rootDir)
 {
-    statusBar()->setToolTip(QString("searching at %1").arg(rootDir));
+    QList<ImageData> newFiles;
     QDir dir(rootDir);
-    QFileInfoList filesIL = dir.entryInfoList(QDir::Files);
     QFileInfoList subdirs = dir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QList<QFuture<void> > futures;
+    for (int i = 0; i < subdirs.size(); i++) {
+        futures.append(QtConcurrent::run(this, populateFilesAsync, subdirs[i].absoluteFilePath()));
+    }
+    QFileInfoList filesIL = dir.entryInfoList(QDir::Files);
     for (int i = 0; i < filesIL.size(); i++) {
         QImageReader ir(filesIL[i].absoluteFilePath());
         if (!ir.canRead())
             continue;
-        files.append(ImageData(filesIL[i].absoluteFilePath()));
+        newFiles.append(ImageData(filesIL[i].absoluteFilePath()));
     }
-    for (int i = 0; i < subdirs.size(); i++) {
-        populateFilesAsync(subdirs[i].absoluteFilePath());
+    addFiles(newFiles);
+    for (int i = 0; i < futures.size(); i++) {
+        futures[i].waitForFinished();
     }
+}
+
+void MainWindow::addFiles(const QList<ImageData> &newFiles)
+{
+    static QMutex mutex;
+    {
+        QMutexLocker ml(&mutex);
+        files.append(newFiles);
+    }
+    emit filesAdded(newFiles.size());
+}
+
+void MainWindow::filesAddedSlot(int howMuch)
+{
+    qDebug() << "found so far" << files.size() << "files";
 }
 
 void MainWindow::updateProgressBarRange()
@@ -97,7 +116,7 @@ void MainWindow::Shrink(ImageData &id)
     qDebug() << id.path;
     QImage img(id.path);
     QImageWriter iw;
-    iw.setQuality(ui->resolutionSlider->value());
+    iw.setQuality(ui->qualitySlider->value());
     QString newName = id.path;
     newName.replace(ui->rootDirLabel->text(), ui->outputDirLineEdit->text());
     iw.setFileName(newName);
@@ -109,13 +128,11 @@ void shrink(ImageData &id)
     MainWindow::Inst()->Shrink(id);
 }
 
-
 ImageData::ImageData(QString _path):
     path(_path)
 {
     QFileInfo fi(path);
     origFileSize = fi.size();
-    qDebug() << "found" << path << "sz" << origFileSize;
 }
 
 ImageData::ImageData(const ImageData &other)
@@ -134,8 +151,30 @@ void MainWindow::processFinished()
     qDebug()  << __FUNCTION__ << origSize << newSize << 100.0*newSize/origSize;
 }
 
-void MainWindow::on_resolutionSlider_valueChanged(int value)
+void MainWindow::populatingFilesFinished()
+{
+    DBGF;
+    long totalSize = 0;
+    for (int i = 0; i < files.size(); i++) {
+        totalSize += files[i].origFileSize;
+    }
+    DBGF << "found" << files.size() << "files with total size" << totalSize;
+    updateProgressBarRange();
+
+    on_overwriteCheckBox_clicked();
+    if (ui->outputDirLineEdit->text().isEmpty()) {
+        ui->outputDirLineEdit->setFocus();
+    }
+    ui->startStopBtn->setEnabled(files.size() > 0);
+    ui->progressBar->setEnabled(files.size() > 0);
+    if (files.size() == 0) {
+        this->statusBar()->setToolTip("input directory has no image files");
+    }
+
+}
+
+void MainWindow::on_qualitySlider_valueChanged(int value)
 {
     QString str = QString("%1%").arg(value);
-    ui->resolutionLabel->setText(str);
+    ui->qualityLabel->setText(str);
 }
