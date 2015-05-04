@@ -29,8 +29,9 @@ private slots:
     void on_selectFolderBtn_clicked();
     void on_startStopBtn_clicked();
     void on_overwriteCheckBox_clicked();
-    void on_resolutionSlider_sliderMoved(int position);
+    void on_resolutionSlider_valueChanged(int value);
     void processFinished();
+
 
 private:
     Ui::MainWindow *ui;

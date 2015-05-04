@@ -17,7 +17,7 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     inst = this;
     ui->setupUi(this);
-    on_resolutionSlider_sliderMoved(ui->resolutionSlider->value());
+    on_resolutionSlider_valueChanged(ui->resolutionSlider->value());
 }
 
 MainWindow::~MainWindow()
@@ -53,20 +53,13 @@ void MainWindow::on_selectFolderBtn_clicked()
 void shrink(ImageData& id);
 void MainWindow::on_startStopBtn_clicked()
 {
-    // Create a QFutureWatcher and connect signals and slots.
-    QFutureWatcher<void> futureWatcher;
-    QObject::connect(&futureWatcher, SIGNAL(finished()), this, SLOT(processFinished()));
-    //QObject::connect(&dialog, SIGNAL(canceled()), &futureWatcher, SLOT(cancel()));
-    QObject::connect(&futureWatcher, SIGNAL(progressRangeChanged(int,int)), ui->progressBar, SLOT(setRange(int,int)));
-    QObject::connect(&futureWatcher, SIGNAL(progressValueChanged(int)), ui->progressBar, SLOT(setValue(int)));
+    QFutureWatcher<void>* futureWatcher = new QFutureWatcher<void>();
+    connect(futureWatcher, SIGNAL(finished()), this, SLOT(processFinished()));
+    connect(futureWatcher, SIGNAL(progressRangeChanged(int,int)), ui->progressBar, SLOT(setRange(int,int)));
+    connect(futureWatcher, SIGNAL(progressValueChanged(int)), ui->progressBar, SLOT(setValue(int)));
+    connect(futureWatcher, SIGNAL(finished()), futureWatcher, SLOT(deleteLater()));
 
-    // Start the computation.
-    //futureWatcher.setFuture(QtConcurrent::map(files, Shrink));
-    for (int i = 0; i < files.size(); i++) {
-        Shrink(files[i]);
-    }
-
-    //futureWatcher.waitForFinished();
+    futureWatcher->setFuture(QtConcurrent::map(files, ::shrink));
 }
 
 void MainWindow::on_overwriteCheckBox_clicked()
@@ -131,14 +124,18 @@ ImageData::ImageData(const ImageData &other)
     origFileSize = other.origFileSize;
 }
 
-void MainWindow::on_resolutionSlider_sliderMoved(int position)
-{
-    QString str = QString("%1%").arg(position);
-    ui->resolutionLabel->setText(str);
-}
-
 void MainWindow::processFinished()
 {
-    qDebug()  << __FUNCTION__;
+    long origSize = 0, newSize = 0;
+    for (int i = 0; i < files.size(); i++) {
+        origSize += files[i].origFileSize;
+        newSize += QFileInfo(files[i].path).size();
+    }
+    qDebug()  << __FUNCTION__ << origSize << newSize << 100.0*newSize/origSize;
+}
 
+void MainWindow::on_resolutionSlider_valueChanged(int value)
+{
+    QString str = QString("%1%").arg(value);
+    ui->resolutionLabel->setText(str);
 }
